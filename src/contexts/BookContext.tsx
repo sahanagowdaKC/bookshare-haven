@@ -9,6 +9,7 @@ export interface Book {
   description: string;
   ratings: { userId: string; rating: number }[];
   createdAt: string;
+  contributorId?: string;
 }
 
 export interface ShareActivity {
@@ -24,11 +25,13 @@ export interface ShareActivity {
 interface BookContextType {
   books: Book[];
   shareActivities: ShareActivity[];
-  addBook: (book: Omit<Book, 'id' | 'ratings' | 'createdAt'>) => void;
+  addBook: (book: Omit<Book, 'id' | 'ratings' | 'createdAt'>, contributorId?: string) => void;
   rateBook: (bookId: string, userId: string, rating: number) => void;
   getAverageRating: (bookId: string) => number;
   recordShare: (bookId: string, userId: string, userEmail: string, platform: string) => void;
   getBookById: (id: string) => Book | undefined;
+  getUserContributionCount: (userId: string) => number;
+  canDownload: (userId: string) => boolean;
 }
 
 const BookContext = createContext<BookContextType | undefined>(undefined);
@@ -85,14 +88,23 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('ebook_share_activities', JSON.stringify(shareActivities));
   }, [shareActivities]);
 
-  const addBook = (book: Omit<Book, 'id' | 'ratings' | 'createdAt'>) => {
+  const addBook = (book: Omit<Book, 'id' | 'ratings' | 'createdAt'>, contributorId?: string) => {
     const newBook: Book = {
       ...book,
       id: Date.now().toString(),
       ratings: [],
       createdAt: new Date().toISOString(),
+      contributorId,
     };
     setBooks((prev) => [...prev, newBook]);
+  };
+
+  const getUserContributionCount = (userId: string) => {
+    return books.filter((book) => book.contributorId === userId).length;
+  };
+
+  const canDownload = (userId: string) => {
+    return getUserContributionCount(userId) > 0;
   };
 
   const rateBook = (bookId: string, userId: string, rating: number) => {
@@ -140,7 +152,7 @@ export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <BookContext.Provider
-      value={{ books, shareActivities, addBook, rateBook, getAverageRating, recordShare, getBookById }}
+      value={{ books, shareActivities, addBook, rateBook, getAverageRating, recordShare, getBookById, getUserContributionCount, canDownload }}
     >
       {children}
     </BookContext.Provider>

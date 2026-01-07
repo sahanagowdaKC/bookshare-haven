@@ -1,18 +1,32 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Share2 } from 'lucide-react';
+import { ArrowLeft, Share2, Download, Upload, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/Navbar';
 import { StarRating } from '@/components/StarRating';
 import { useBooks } from '@/contexts/BookContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { useState } from 'react';
 
 const Read = () => {
   const { id } = useParams<{ id: string }>();
-  const { getBookById, rateBook, getAverageRating, recordShare } = useBooks();
+  const { getBookById, rateBook, getAverageRating, recordShare, canDownload, addBook, getUserContributionCount } = useBooks();
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [contributeOpen, setContributeOpen] = useState(false);
+  const [newBook, setNewBook] = useState({ title: '', author: '', coverImage: '', content: '', description: '' });
 
   const book = getBookById(id || '');
   const userRating = book?.ratings.find((r) => r.userId === user?.id)?.rating || 0;
@@ -66,6 +80,42 @@ const Read = () => {
     toast({ title: 'Book shared!', description: `Shared via ${platform}.` });
   };
 
+  const handleDownload = () => {
+    if (!user) return;
+    
+    const content = `${book.title}\nby ${book.author}\n\n${book.description}\n\n${book.content}`;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${book.title}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: 'Download started!', description: `Downloading "${book.title}"` });
+  };
+
+  const handleContribute = () => {
+    if (!user || !newBook.title || !newBook.author || !newBook.content) {
+      toast({ title: 'Missing fields', description: 'Please fill in title, author, and content.', variant: 'destructive' });
+      return;
+    }
+    addBook({
+      title: newBook.title,
+      author: newBook.author,
+      coverImage: newBook.coverImage || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=300&h=400&fit=crop',
+      content: newBook.content,
+      description: newBook.description || 'A contributed book.',
+    }, user.id);
+    setNewBook({ title: '', author: '', coverImage: '', content: '', description: '' });
+    setContributeOpen(false);
+    toast({ title: 'Book contributed!', description: 'You can now download any book.' });
+  };
+
+  const userCanDownload = user ? canDownload(user.id) : false;
+  const contributionCount = user ? getUserContributionCount(user.id) : 0;
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -117,6 +167,102 @@ const Read = () => {
                   Email
                 </Button>
               </div>
+            </div>
+
+            {/* Download Section */}
+            <div className="space-y-3 pt-4 border-t border-border/50">
+              <p className="text-sm font-medium text-foreground flex items-center gap-2">
+                <Download className="h-4 w-4" /> Download Book
+              </p>
+              
+              {userCanDownload ? (
+                <Button className="w-full" onClick={handleDownload}>
+                  <Download className="mr-2 h-4 w-4" /> Download as TXT
+                </Button>
+              ) : (
+                <div className="space-y-3">
+                  <div className="rounded-lg bg-muted/50 p-3 text-sm">
+                    <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                      <Lock className="h-4 w-4" />
+                      <span>Contribute to unlock downloads</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Add one book to the library to download unlimited books.
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Your contributions: {contributionCount}
+                    </p>
+                  </div>
+                  
+                  <Dialog open={contributeOpen} onOpenChange={setContributeOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="w-full">
+                        <Upload className="mr-2 h-4 w-4" /> Contribute a Book
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>Contribute a Book</DialogTitle>
+                        <DialogDescription>
+                          Share a book with the community to unlock downloads.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 pt-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="title">Title *</Label>
+                          <Input
+                            id="title"
+                            value={newBook.title}
+                            onChange={(e) => setNewBook({ ...newBook, title: e.target.value })}
+                            placeholder="Enter book title"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="author">Author *</Label>
+                          <Input
+                            id="author"
+                            value={newBook.author}
+                            onChange={(e) => setNewBook({ ...newBook, author: e.target.value })}
+                            placeholder="Enter author name"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="coverImage">Cover Image URL</Label>
+                          <Input
+                            id="coverImage"
+                            value={newBook.coverImage}
+                            onChange={(e) => setNewBook({ ...newBook, coverImage: e.target.value })}
+                            placeholder="https://example.com/cover.jpg"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="description">Description</Label>
+                          <Textarea
+                            id="description"
+                            value={newBook.description}
+                            onChange={(e) => setNewBook({ ...newBook, description: e.target.value })}
+                            placeholder="Brief description of the book"
+                            rows={2}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="content">Content *</Label>
+                          <Textarea
+                            id="content"
+                            value={newBook.content}
+                            onChange={(e) => setNewBook({ ...newBook, content: e.target.value })}
+                            placeholder="Paste the book content here..."
+                            rows={6}
+                          />
+                        </div>
+                        <Button onClick={handleContribute} className="w-full">
+                          <Upload className="mr-2 h-4 w-4" /> Submit Book
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              )}
             </div>
           </div>
 
