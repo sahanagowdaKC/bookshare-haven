@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Share2, Download, Upload, Lock } from 'lucide-react';
+import { ArrowLeft, Share2, Download, Upload, Lock, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/Navbar';
 import { StarRating } from '@/components/StarRating';
@@ -21,15 +21,16 @@ import { useState } from 'react';
 
 const Read = () => {
   const { id } = useParams<{ id: string }>();
-  const { getBookById, rateBook, getAverageRating, recordShare, canDownload, addBook, getUserContributionCount } = useBooks();
+  const { getBookById, rateBook, getAverageRating, getUserRating, canDownload, addBook, getUserContributionCount } = useBooks();
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [contributeOpen, setContributeOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [newBook, setNewBook] = useState({ title: '', author: '', coverImage: '', content: '', description: '' });
 
   const book = getBookById(id || '');
-  const userRating = book?.ratings.find((r) => r.userId === user?.id)?.rating || 0;
+  const userRating = user ? getUserRating(id || '', user.id) : 0;
   const averageRating = getAverageRating(id || '');
 
   if (!book) {
@@ -46,9 +47,9 @@ const Read = () => {
     );
   }
 
-  const handleRate = (rating: number) => {
+  const handleRate = async (rating: number) => {
     if (user) {
-      rateBook(book.id, user.id, rating);
+      await rateBook(book.id, user.id, rating);
       toast({ title: 'Rating saved!', description: `You rated "${book.title}" ${rating} stars.` });
     }
   };
@@ -76,7 +77,6 @@ const Read = () => {
     }
     
     window.open(url, '_blank');
-    recordShare(book.id, user.id, user.email, platform);
     toast({ title: 'Book shared!', description: `Shared via ${platform}.` });
   };
 
@@ -96,21 +96,29 @@ const Read = () => {
     toast({ title: 'Download started!', description: `Downloading "${book.title}"` });
   };
 
-  const handleContribute = () => {
+  const handleContribute = async () => {
     if (!user || !newBook.title || !newBook.author || !newBook.content) {
       toast({ title: 'Missing fields', description: 'Please fill in title, author, and content.', variant: 'destructive' });
       return;
     }
-    addBook({
+    
+    setIsSubmitting(true);
+    const success = await addBook({
       title: newBook.title,
       author: newBook.author,
       coverImage: newBook.coverImage || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=300&h=400&fit=crop',
       content: newBook.content,
       description: newBook.description || 'A contributed book.',
     }, user.id);
-    setNewBook({ title: '', author: '', coverImage: '', content: '', description: '' });
-    setContributeOpen(false);
-    toast({ title: 'Book contributed!', description: 'You can now download any book.' });
+    
+    if (success) {
+      setNewBook({ title: '', author: '', coverImage: '', content: '', description: '' });
+      setContributeOpen(false);
+      toast({ title: 'Book contributed!', description: 'You can now download any book.' });
+    } else {
+      toast({ title: 'Error', description: 'Failed to add book. Please try again.', variant: 'destructive' });
+    }
+    setIsSubmitting(false);
   };
 
   const userCanDownload = user ? canDownload(user.id) : false;
@@ -215,6 +223,7 @@ const Read = () => {
                             value={newBook.title}
                             onChange={(e) => setNewBook({ ...newBook, title: e.target.value })}
                             placeholder="Enter book title"
+                            disabled={isSubmitting}
                           />
                         </div>
                         <div className="space-y-2">
@@ -224,6 +233,7 @@ const Read = () => {
                             value={newBook.author}
                             onChange={(e) => setNewBook({ ...newBook, author: e.target.value })}
                             placeholder="Enter author name"
+                            disabled={isSubmitting}
                           />
                         </div>
                         <div className="space-y-2">
@@ -233,6 +243,7 @@ const Read = () => {
                             value={newBook.coverImage}
                             onChange={(e) => setNewBook({ ...newBook, coverImage: e.target.value })}
                             placeholder="https://example.com/cover.jpg"
+                            disabled={isSubmitting}
                           />
                         </div>
                         <div className="space-y-2">
@@ -243,6 +254,7 @@ const Read = () => {
                             onChange={(e) => setNewBook({ ...newBook, description: e.target.value })}
                             placeholder="Brief description of the book"
                             rows={2}
+                            disabled={isSubmitting}
                           />
                         </div>
                         <div className="space-y-2">
@@ -253,10 +265,20 @@ const Read = () => {
                             onChange={(e) => setNewBook({ ...newBook, content: e.target.value })}
                             placeholder="Paste the book content here..."
                             rows={6}
+                            disabled={isSubmitting}
                           />
                         </div>
-                        <Button onClick={handleContribute} className="w-full">
-                          <Upload className="mr-2 h-4 w-4" /> Submit Book
+                        <Button onClick={handleContribute} className="w-full" disabled={isSubmitting}>
+                          {isSubmitting ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Submitting...
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="mr-2 h-4 w-4" /> Submit Book
+                            </>
+                          )}
                         </Button>
                       </div>
                     </DialogContent>

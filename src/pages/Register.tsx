@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { BookOpen, Mail, Lock, User } from 'lucide-react';
+import { BookOpen, Mail, Lock, User, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -11,25 +11,25 @@ const Register = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { register } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setIsSubmitting(true);
 
-    const success = register(email, password, name);
+    const result = await register(email, password, name);
     
-    if (success) {
+    if (result.success) {
       toast({ title: 'Welcome to BookHaven!', description: 'Your account has been created.' });
       navigate('/');
     } else {
-      toast({ title: 'Registration failed', description: 'Email already exists.', variant: 'destructive' });
+      toast({ title: 'Registration failed', description: result.error, variant: 'destructive' });
     }
     
-    setLoading(false);
+    setIsSubmitting(false);
   };
 
   return (
@@ -56,6 +56,7 @@ const Register = () => {
                 onChange={(e) => setName(e.target.value)}
                 className="pl-10"
                 required
+                disabled={isSubmitting}
               />
             </div>
             <div className="relative">
@@ -67,22 +68,31 @@ const Register = () => {
                 onChange={(e) => setEmail(e.target.value)}
                 className="pl-10"
                 required
+                disabled={isSubmitting}
               />
             </div>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="password"
-                placeholder="Password"
+                placeholder="Password (min 6 characters)"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-10"
                 minLength={6}
                 required
+                disabled={isSubmitting}
               />
             </div>
-            <Button type="submit" className="w-full" variant="gold" disabled={loading}>
-              {loading ? 'Creating account...' : 'Create Account'}
+            <Button type="submit" className="w-full" variant="gold" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating account...
+                </>
+              ) : (
+                'Create Account'
+              )}
             </Button>
           </form>
           

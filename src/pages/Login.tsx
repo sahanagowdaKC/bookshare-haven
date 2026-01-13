@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, Mail, Lock } from 'lucide-react';
+import { BookOpen, Mail, Lock, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -20,18 +20,18 @@ const Login = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setIsSubmitting(true);
 
-    const success = login(email, password);
+    const result = await login(email, password);
     
-    if (success) {
+    if (result.success) {
       toast({ title: 'Welcome back!', description: 'You have successfully logged in.' });
       navigate(redirectTo);
     } else {
-      toast({ title: 'Login failed', description: 'Invalid email or password.', variant: 'destructive' });
+      toast({ title: 'Login failed', description: result.error, variant: 'destructive' });
     }
     
-    setLoading(false);
+    setIsSubmitting(false);
   };
 
   return (
@@ -58,6 +58,7 @@ const Login = () => {
                 onChange={(e) => setEmail(e.target.value)}
                 className="pl-10"
                 required
+                disabled={isSubmitting}
               />
             </div>
             <div className="relative">
@@ -69,10 +70,18 @@ const Login = () => {
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-10"
                 required
+                disabled={isSubmitting}
               />
             </div>
-            <Button type="submit" className="w-full" variant="gold" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign In'}
+            <Button type="submit" className="w-full" variant="gold" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                'Sign In'
+              )}
             </Button>
           </form>
           
