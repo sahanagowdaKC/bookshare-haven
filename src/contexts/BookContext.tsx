@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface Book {
   id: string;
@@ -7,152 +8,136 @@ export interface Book {
   coverImage: string;
   content: string;
   description: string;
-  ratings: { userId: string; rating: number }[];
-  createdAt: string;
   contributorId?: string;
+  createdAt: string;
 }
 
-export interface ShareActivity {
-  id: string;
+export interface BookRating {
   bookId: string;
-  bookTitle: string;
   userId: string;
-  userEmail: string;
-  sharedAt: string;
-  platform: string;
+  rating: number;
 }
 
 interface BookContextType {
   books: Book[];
-  shareActivities: ShareActivity[];
-  addBook: (book: Omit<Book, 'id' | 'ratings' | 'createdAt'>, contributorId?: string) => void;
-  rateBook: (bookId: string, userId: string, rating: number) => void;
+  isLoading: boolean;
+  addBook: (book: Omit<Book, 'id' | 'createdAt'>, contributorId?: string) => Promise<boolean>;
+  rateBook: (bookId: string, userId: string, rating: number) => Promise<void>;
   getAverageRating: (bookId: string) => number;
-  recordShare: (bookId: string, userId: string, userEmail: string, platform: string) => void;
+  getUserRating: (bookId: string, userId: string) => number;
   getBookById: (id: string) => Book | undefined;
   getUserContributionCount: (userId: string) => number;
   canDownload: (userId: string) => boolean;
+  refreshBooks: () => Promise<void>;
 }
 
 const BookContext = createContext<BookContextType | undefined>(undefined);
 
-const defaultBooks: Book[] = [
-  {
-    id: '1',
-    title: 'The Great Gatsby',
-    author: 'F. Scott Fitzgerald',
-    coverImage: 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=300&h=400&fit=crop',
-    content: `In my younger and more vulnerable years my father gave me some advice that I've been turning over in my mind ever since.\n\n"Whenever you feel like criticizing anyone," he told me, "just remember that all the people in this world haven't had the advantages that you've had."\n\nHe didn't say any more, but we've always been unusually communicative in a reserved way, and I understood that he meant a great deal more than that. In consequence, I'm inclined to reserve all judgments, a habit that has opened up many curious natures to me and also made me the victim of not a few veteran bores.`,
-    description: 'A story of decadence and excess in the Jazz Age.',
-    ratings: [{ userId: 'demo', rating: 5 }],
-    createdAt: '2024-01-01',
-  },
-  {
-    id: '2',
-    title: 'Pride and Prejudice',
-    author: 'Jane Austen',
-    coverImage: 'https://images.unsplash.com/photo-1543002588-bfa74002ed7e?w=300&h=400&fit=crop',
-    content: `It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.\n\nHowever little known the feelings or views of such a man may be on his first entering a neighbourhood, this truth is so well fixed in the minds of the surrounding families, that he is considered the rightful property of some one or other of their daughters.`,
-    description: 'A romantic novel of manners.',
-    ratings: [{ userId: 'demo', rating: 4 }],
-    createdAt: '2024-01-02',
-  },
-  {
-    id: '3',
-    title: '1984',
-    author: 'George Orwell',
-    coverImage: 'https://images.unsplash.com/photo-1495446815901-a7297e633e8d?w=300&h=400&fit=crop',
-    content: `It was a bright cold day in April, and the clocks were striking thirteen. Winston Smith, his chin nuzzled into his breast in an effort to escape the vile wind, slipped quickly through the glass doors of Victory Mansions, though not quickly enough to prevent a swirl of gritty dust from entering along with him.\n\nThe hallway smelt of boiled cabbage and old rag mats.`,
-    description: 'A dystopian social science fiction novel.',
-    ratings: [{ userId: 'demo', rating: 5 }],
-    createdAt: '2024-01-03',
-  },
-];
-
 export const BookProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [books, setBooks] = useState<Book[]>(() => {
-    const stored = localStorage.getItem('ebook_books');
-    return stored ? JSON.parse(stored) : defaultBooks;
-  });
+  const [books, setBooks] = useState<Book[]>([]);
+  const [ratings, setRatings] = useState<BookRating[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [shareActivities, setShareActivities] = useState<ShareActivity[]>(() => {
-    const stored = localStorage.getItem('ebook_share_activities');
-    return stored ? JSON.parse(stored) : [];
-  });
+  const fetchBooks = async () => {
+    const { data, error } = await supabase
+      .from('books')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      setBooks(data.map(book => ({
+        id: book.id,
+        title: book.title,
+        author: book.author,
+        coverImage: book.cover_url || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=300&h=400&fit=crop',
+        content: book.content || '',
+        description: book.description || '',
+        contributorId: book.contributor_id || undefined,
+        createdAt: book.created_at,
+      })));
+    }
+    setIsLoading(false);
+  };
+
+  const fetchRatings = async () => {
+    const { data, error } = await supabase
+      .from('book_ratings')
+      .select('*');
+
+    if (!error && data) {
+      setRatings(data.map(r => ({
+        bookId: r.book_id,
+        userId: r.user_id,
+        rating: r.rating,
+      })));
+    }
+  };
+
+  const refreshBooks = async () => {
+    await Promise.all([fetchBooks(), fetchRatings()]);
+  };
 
   useEffect(() => {
-    localStorage.setItem('ebook_books', JSON.stringify(books));
-  }, [books]);
+    refreshBooks();
+  }, []);
 
-  useEffect(() => {
-    localStorage.setItem('ebook_share_activities', JSON.stringify(shareActivities));
-  }, [shareActivities]);
+  const addBook = async (book: Omit<Book, 'id' | 'createdAt'>, contributorId?: string): Promise<boolean> => {
+    const { error } = await supabase
+      .from('books')
+      .insert({
+        title: book.title,
+        author: book.author,
+        cover_url: book.coverImage,
+        content: book.content,
+        description: book.description,
+        contributor_id: contributorId,
+      });
 
-  const addBook = (book: Omit<Book, 'id' | 'ratings' | 'createdAt'>, contributorId?: string) => {
-    const newBook: Book = {
-      ...book,
-      id: Date.now().toString(),
-      ratings: [],
-      createdAt: new Date().toISOString(),
-      contributorId,
-    };
-    setBooks((prev) => [...prev, newBook]);
+    if (!error) {
+      await fetchBooks();
+      return true;
+    }
+    return false;
   };
 
   const getUserContributionCount = (userId: string) => {
-    return books.filter((book) => book.contributorId === userId).length;
+    return books.filter(book => book.contributorId === userId).length;
   };
 
   const canDownload = (userId: string) => {
     return getUserContributionCount(userId) > 0;
   };
 
-  const rateBook = (bookId: string, userId: string, rating: number) => {
-    setBooks((prev) =>
-      prev.map((book) => {
-        if (book.id === bookId) {
-          const existingRatingIndex = book.ratings.findIndex((r) => r.userId === userId);
-          const newRatings = [...book.ratings];
-          if (existingRatingIndex >= 0) {
-            newRatings[existingRatingIndex] = { userId, rating };
-          } else {
-            newRatings.push({ userId, rating });
-          }
-          return { ...book, ratings: newRatings };
-        }
-        return book;
-      })
-    );
+  const rateBook = async (bookId: string, userId: string, rating: number) => {
+    const { error } = await supabase
+      .from('book_ratings')
+      .upsert({
+        book_id: bookId,
+        user_id: userId,
+        rating,
+      }, { onConflict: 'book_id,user_id' });
+
+    if (!error) {
+      await fetchRatings();
+    }
   };
 
   const getAverageRating = (bookId: string) => {
-    const book = books.find((b) => b.id === bookId);
-    if (!book || book.ratings.length === 0) return 0;
-    const sum = book.ratings.reduce((acc, r) => acc + r.rating, 0);
-    return sum / book.ratings.length;
+    const bookRatings = ratings.filter(r => r.bookId === bookId);
+    if (bookRatings.length === 0) return 0;
+    const sum = bookRatings.reduce((acc, r) => acc + r.rating, 0);
+    return sum / bookRatings.length;
   };
 
-  const recordShare = (bookId: string, userId: string, userEmail: string, platform: string) => {
-    const book = books.find((b) => b.id === bookId);
-    if (!book) return;
-
-    const activity: ShareActivity = {
-      id: Date.now().toString(),
-      bookId,
-      bookTitle: book.title,
-      userId,
-      userEmail,
-      sharedAt: new Date().toISOString(),
-      platform,
-    };
-    setShareActivities((prev) => [...prev, activity]);
+  const getUserRating = (bookId: string, userId: string) => {
+    return ratings.find(r => r.bookId === bookId && r.userId === userId)?.rating || 0;
   };
 
-  const getBookById = (id: string) => books.find((b) => b.id === id);
+  const getBookById = (id: string) => books.find(b => b.id === id);
 
   return (
     <BookContext.Provider
-      value={{ books, shareActivities, addBook, rateBook, getAverageRating, recordShare, getBookById, getUserContributionCount, canDownload }}
+      value={{ books, isLoading, addBook, rateBook, getAverageRating, getUserRating, getBookById, getUserContributionCount, canDownload, refreshBooks }}
     >
       {children}
     </BookContext.Provider>

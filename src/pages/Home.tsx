@@ -1,12 +1,12 @@
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, Sparkles } from 'lucide-react';
+import { BookOpen, Sparkles, Loader2 } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { BookCard } from '@/components/BookCard';
 import { useBooks } from '@/contexts/BookContext';
 import { useAuth } from '@/contexts/AuthContext';
 
 const Home = () => {
-  const { books } = useBooks();
+  const { books, isLoading } = useBooks();
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -48,20 +48,26 @@ const Home = () => {
           <h2 className="font-serif text-2xl font-semibold text-foreground">Available Books</h2>
         </div>
         
-        <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          {books.map((book) => (
-            <BookCard
-              key={book.id}
-              id={book.id}
-              title={book.title}
-              author={book.author}
-              coverImage={book.coverImage}
-              onClick={() => handleBookClick(book.id)}
-            />
-          ))}
-        </div>
+        {isLoading ? (
+          <div className="flex justify-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : (
+          <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {books.map((book) => (
+              <BookCard
+                key={book.id}
+                id={book.id}
+                title={book.title}
+                author={book.author}
+                coverImage={book.coverImage}
+                onClick={() => handleBookClick(book.id)}
+              />
+            ))}
+          </div>
+        )}
 
-        {books.length === 0 && (
+        {!isLoading && books.length === 0 && (
           <div className="py-20 text-center text-muted-foreground">
             <BookOpen className="mx-auto mb-4 h-12 w-12 opacity-50" />
             <p>No books available yet. Check back soon!</p>

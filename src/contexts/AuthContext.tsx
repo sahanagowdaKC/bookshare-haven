@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 export interface User {
   id: string;
@@ -8,68 +10,100 @@ export interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => boolean;
-  register: (email: string, password: string, name: string) => boolean;
-  logout: () => void;
+  isAdmin: boolean;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  register: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-interface StoredUser extends User {
-  password: string;
-}
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(() => {
-    const stored = localStorage.getItem('ebook_current_user');
-    return stored ? JSON.parse(stored) : null;
-  });
+  const [user, setUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchUserProfile = async (supabaseUser: SupabaseUser) => {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('name, email')
+      .eq('user_id', supabaseUser.id)
+      .maybeSingle();
+
+    if (profile) {
+      setUser({
+        id: supabaseUser.id,
+        email: profile.email,
+        name: profile.name,
+      });
+    }
+
+    // Check if user is admin
+    const { data: roleData } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', supabaseUser.id)
+      .eq('role', 'admin')
+      .maybeSingle();
+
+    setIsAdmin(!!roleData);
+  };
 
   useEffect(() => {
-    if (user) {
-      localStorage.setItem('ebook_current_user', JSON.stringify(user));
-      const loggedIn = JSON.parse(localStorage.getItem('ebook_logged_in_users') || '[]');
-      if (!loggedIn.includes(user.id)) {
-        localStorage.setItem('ebook_logged_in_users', JSON.stringify([...loggedIn, user.id]));
+    // Set up auth state listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        await fetchUserProfile(session.user);
+      } else {
+        setUser(null);
+        setIsAdmin(false);
       }
-    } else {
-      localStorage.removeItem('ebook_current_user');
-    }
-  }, [user]);
+      setIsLoading(false);
+    });
 
-  const login = (email: string, password: string): boolean => {
-    const users: StoredUser[] = JSON.parse(localStorage.getItem('ebook_users') || '[]');
-    const found = users.find((u) => u.email === email && u.password === password);
-    if (found) {
-      const { password: _, ...userData } = found;
-      setUser(userData);
-      return true;
+    // Then check for existing session
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        await fetchUserProfile(session.user);
+      }
+      setIsLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      return { success: false, error: error.message };
     }
-    return false;
+    return { success: true };
   };
 
-  const register = (email: string, password: string, name: string): boolean => {
-    const users: StoredUser[] = JSON.parse(localStorage.getItem('ebook_users') || '[]');
-    if (users.some((u) => u.email === email)) {
-      return false;
+  const register = async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: window.location.origin,
+        data: { name },
+      },
+    });
+    if (error) {
+      return { success: false, error: error.message };
     }
-    const newUser: StoredUser = { id: Date.now().toString(), email, password, name };
-    localStorage.setItem('ebook_users', JSON.stringify([...users, newUser]));
-    const { password: _, ...userData } = newUser;
-    setUser(userData);
-    return true;
+    return { success: true };
   };
 
-  const logout = () => {
-    if (user) {
-      const loggedIn = JSON.parse(localStorage.getItem('ebook_logged_in_users') || '[]');
-      localStorage.setItem('ebook_logged_in_users', JSON.stringify(loggedIn.filter((id: string) => id !== user.id)));
-    }
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
+    setIsAdmin(false);
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout }}>
+    <AuthContext.Provider value={{ user, isAdmin, isLoading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

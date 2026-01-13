@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Users, BookPlus, Share2, LogOut, Lock } from 'lucide-react';
+import { Shield, Users, BookPlus, LogOut, Loader2, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -8,69 +8,133 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useBooks } from '@/contexts/BookContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
-const ADMIN_PASSWORD = 'admin@123';
+interface Profile {
+  id: string;
+  user_id: string;
+  name: string;
+  email: string;
+  created_at: string;
+}
 
 const Admin = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [password, setPassword] = useState('');
   const [newBook, setNewBook] = useState({ title: '', author: '', coverImage: '', content: '', description: '' });
-  const { books, addBook, shareActivities } = useBooks();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [users, setUsers] = useState<Profile[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(true);
+  const { books, addBook, refreshBooks } = useBooks();
+  const { user, isAdmin, isLoading, logout } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  // Get user stats from localStorage
-  const allUsers = JSON.parse(localStorage.getItem('ebook_users') || '[]');
-  const loggedInUsers = JSON.parse(localStorage.getItem('ebook_logged_in_users') || '[]');
+  useEffect(() => {
+    const fetchUsers = async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (!error && data) {
+        setUsers(data);
+      }
+      setIsLoadingUsers(false);
+    };
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password === ADMIN_PASSWORD) {
-      setIsAuthenticated(true);
-      toast({ title: 'Admin access granted' });
-    } else {
-      toast({ title: 'Invalid password', variant: 'destructive' });
+    if (isAdmin) {
+      fetchUsers();
     }
-  };
+  }, [isAdmin]);
 
-  const handleAddBook = (e: React.FormEvent) => {
+  const handleAddBook = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBook.title || !newBook.author || !newBook.content) {
       toast({ title: 'Please fill all required fields', variant: 'destructive' });
       return;
     }
-    addBook(newBook);
-    setNewBook({ title: '', author: '', coverImage: '', content: '', description: '' });
-    toast({ title: 'Book added successfully!' });
+    
+    setIsSubmitting(true);
+    const success = await addBook({
+      title: newBook.title,
+      author: newBook.author,
+      coverImage: newBook.coverImage || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=300&h=400&fit=crop',
+      content: newBook.content,
+      description: newBook.description || '',
+    });
+    
+    if (success) {
+      setNewBook({ title: '', author: '', coverImage: '', content: '', description: '' });
+      toast({ title: 'Book added successfully!' });
+    } else {
+      toast({ title: 'Failed to add book', variant: 'destructive' });
+    }
+    setIsSubmitting(false);
   };
 
-  if (!isAuthenticated) {
+  const handleDeleteBook = async (bookId: string) => {
+    const { error } = await supabase
+      .from('books')
+      .delete()
+      .eq('id', bookId);
+
+    if (!error) {
+      await refreshBooks();
+      toast({ title: 'Book deleted successfully!' });
+    } else {
+      toast({ title: 'Failed to delete book', variant: 'destructive' });
+    }
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/');
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <Shield className="mx-auto mb-4 h-12 w-12 text-primary" />
             <CardTitle>Admin Access</CardTitle>
-            <CardDescription>Enter admin password to continue</CardDescription>
+            <CardDescription>Please log in to access the admin panel</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Button onClick={() => navigate('/login')} className="w-full" variant="gold">
+              Go to Login
+            </Button>
+            <Button variant="ghost" className="w-full" onClick={() => navigate('/')}>
+              Back to Home
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <Shield className="mx-auto mb-4 h-12 w-12 text-destructive" />
+            <CardTitle>Access Denied</CardTitle>
+            <CardDescription>You don't have admin privileges</CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  type="password"
-                  placeholder="Admin password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <Button type="submit" className="w-full" variant="gold">Access Dashboard</Button>
-              <Button type="button" variant="ghost" className="w-full" onClick={() => navigate('/')}>
-                Back to Home
-              </Button>
-            </form>
+            <Button variant="ghost" className="w-full" onClick={() => navigate('/')}>
+              Back to Home
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -85,7 +149,7 @@ const Admin = () => {
             <Shield className="h-6 w-6 text-primary" />
             Admin Dashboard
           </div>
-          <Button variant="ghost" size="sm" onClick={() => { setIsAuthenticated(false); navigate('/'); }}>
+          <Button variant="ghost" size="sm" onClick={handleLogout}>
             <LogOut className="mr-2 h-4 w-4" /> Logout
           </Button>
         </div>
@@ -98,26 +162,17 @@ const Admin = () => {
             <CardContent className="flex items-center gap-4 p-6">
               <Users className="h-10 w-10 text-primary" />
               <div>
-                <p className="text-2xl font-bold">{allUsers.length}</p>
+                <p className="text-2xl font-bold">{users.length}</p>
                 <p className="text-sm text-muted-foreground">Registered Users</p>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="flex items-center gap-4 p-6">
-              <Users className="h-10 w-10 text-green-500" />
+              <BookPlus className="h-10 w-10 text-green-500" />
               <div>
-                <p className="text-2xl font-bold">{loggedInUsers.length}</p>
-                <p className="text-sm text-muted-foreground">Currently Logged In</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="flex items-center gap-4 p-6">
-              <Share2 className="h-10 w-10 text-blue-500" />
-              <div>
-                <p className="text-2xl font-bold">{shareActivities.length}</p>
-                <p className="text-sm text-muted-foreground">Total Shares</p>
+                <p className="text-2xl font-bold">{books.length}</p>
+                <p className="text-sm text-muted-foreground">Total Books</p>
               </div>
             </CardContent>
           </Card>
@@ -126,8 +181,8 @@ const Admin = () => {
         <Tabs defaultValue="add-book">
           <TabsList className="mb-6">
             <TabsTrigger value="add-book"><BookPlus className="mr-2 h-4 w-4" /> Add Book</TabsTrigger>
+            <TabsTrigger value="books"><BookPlus className="mr-2 h-4 w-4" /> Manage Books</TabsTrigger>
             <TabsTrigger value="users"><Users className="mr-2 h-4 w-4" /> Users</TabsTrigger>
-            <TabsTrigger value="shares"><Share2 className="mr-2 h-4 w-4" /> Share Activity</TabsTrigger>
           </TabsList>
 
           <TabsContent value="add-book">
@@ -143,22 +198,26 @@ const Admin = () => {
                     value={newBook.title}
                     onChange={(e) => setNewBook({ ...newBook, title: e.target.value })}
                     required
+                    disabled={isSubmitting}
                   />
                   <Input
                     placeholder="Author *"
                     value={newBook.author}
                     onChange={(e) => setNewBook({ ...newBook, author: e.target.value })}
                     required
+                    disabled={isSubmitting}
                   />
                   <Input
                     placeholder="Cover Image URL"
                     value={newBook.coverImage}
                     onChange={(e) => setNewBook({ ...newBook, coverImage: e.target.value })}
+                    disabled={isSubmitting}
                   />
                   <Input
                     placeholder="Short Description"
                     value={newBook.description}
                     onChange={(e) => setNewBook({ ...newBook, description: e.target.value })}
+                    disabled={isSubmitting}
                   />
                   <Textarea
                     placeholder="Book Content (Text) *"
@@ -166,9 +225,57 @@ const Admin = () => {
                     onChange={(e) => setNewBook({ ...newBook, content: e.target.value })}
                     rows={10}
                     required
+                    disabled={isSubmitting}
                   />
-                  <Button type="submit" variant="gold">Add Book</Button>
+                  <Button type="submit" variant="gold" disabled={isSubmitting}>
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Adding...
+                      </>
+                    ) : (
+                      'Add Book'
+                    )}
+                  </Button>
                 </form>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="books">
+            <Card>
+              <CardHeader>
+                <CardTitle>Manage Books</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Author</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {books.map((book) => (
+                      <TableRow key={book.id}>
+                        <TableCell className="font-medium">{book.title}</TableCell>
+                        <TableCell>{book.author}</TableCell>
+                        <TableCell>{new Date(book.createdAt).toLocaleDateString()}</TableCell>
+                        <TableCell>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleDeleteBook(book.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </CardContent>
             </Card>
           </TabsContent>
@@ -179,60 +286,30 @@ const Admin = () => {
                 <CardTitle>Registered Users</CardTitle>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {allUsers.map((user: { id: string; name: string; email: string }) => (
-                      <TableRow key={user.id}>
-                        <TableCell>{user.name}</TableCell>
-                        <TableCell>{user.email}</TableCell>
-                        <TableCell>
-                          {loggedInUsers.includes(user.id) ? (
-                            <span className="text-green-500">Online</span>
-                          ) : (
-                            <span className="text-muted-foreground">Offline</span>
-                          )}
-                        </TableCell>
+                {isLoadingUsers ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Joined</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="shares">
-            <Card>
-              <CardHeader>
-                <CardTitle>Share Activity</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Book</TableHead>
-                      <TableHead>User</TableHead>
-                      <TableHead>Platform</TableHead>
-                      <TableHead>Date</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {shareActivities.map((activity) => (
-                      <TableRow key={activity.id}>
-                        <TableCell>{activity.bookTitle}</TableCell>
-                        <TableCell>{activity.userEmail}</TableCell>
-                        <TableCell className="capitalize">{activity.platform}</TableCell>
-                        <TableCell>{new Date(activity.sharedAt).toLocaleDateString()}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {users.map((profile) => (
+                        <TableRow key={profile.id}>
+                          <TableCell>{profile.name}</TableCell>
+                          <TableCell>{profile.email}</TableCell>
+                          <TableCell>{new Date(profile.created_at).toLocaleDateString()}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
